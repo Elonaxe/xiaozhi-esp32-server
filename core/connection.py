@@ -69,6 +69,10 @@ class ConnectionHandler:
         # llm相关变量
         self.llm_finish_task = False
         self.dialogue = Dialogue()
+        
+        # 聊天记录文件相关
+        self.chat_history_file = "chat_history.txt"
+        self.load_chat_history()
 
         # tts相关变量
         self.tts_first_text = None
@@ -250,7 +254,12 @@ class ConnectionHandler:
 
         self.llm_finish_task = True
         # 更新对话
-        self.dialogue.put(Message(role="assistant", content="".join(response_message)))
+        user_message = Message(role="user", content=query)
+        assistant_message = Message(role="assistant", content="".join(response_message))
+        self.dialogue.put(user_message)
+        self.dialogue.put(assistant_message)
+        self.save_chat_history(user_message, assistant_message)
+        #self.dialogue.put(Message(role="assistant", content="".join(response_message)))
         self.logger.bind(tag=TAG).debug(json.dumps(self.dialogue.get_llm_dialogue(), indent=4, ensure_ascii=False))
         return True
 
@@ -346,3 +355,25 @@ class ConnectionHandler:
             task = self.scheduled_tasks.popleft()
             task.cancel()
         self.scheduled_tasks.clear()
+        
+    def load_chat_history(self):
+        if os.path.exists(self.chat_history_file):
+            with open(self.chat_history_file, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+                for line in lines:
+                    try:
+                        data = json.loads(line)
+                        role = data.get("role")
+                        content = data.get("content")
+                        if role and content:
+                            self.dialogue.put(Message(role=role, content=content))
+                    except json.JSONDecodeError:
+                        self.logger.error(f"Failed to decode chat history line: {line}")
+
+    def save_chat_history(self, user_message=None, assistant_message=None):
+        mode = "a" if os.path.exists(self.chat_history_file) else "w"
+        with open(self.chat_history_file, mode, encoding="utf-8") as f:
+            if user_message:
+                f.write(json.dumps({"role": user_message.role, "content": user_message.content}) + "\n")
+            if assistant_message:
+                f.write(json.dumps({"role": assistant_message.role, "content": assistant_message.content}) + "\n")
